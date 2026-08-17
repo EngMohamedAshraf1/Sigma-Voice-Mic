@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sigma Voice - الصوت</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 400px;
+      margin: 60px auto;
+      padding: 20px;
+      direction: rtl;
+      text-align: center;
+    }
+    h1 { font-size: 20px; margin-bottom: 30px; }
+    #status {
+      padding: 20px;
+      border-radius: 8px;
+      background: #f5f5f5;
+      min-height: 24px;
+      line-height: 1.8;
+      margin-bottom: 20px;
+    }
+    button {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 14px;
+      font-size: 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      background: #222;
+      color: #fff;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>🎤 Sigma Voice</h1>
+
+  <div id="status">جاري التحضير...</div>
+
+  <button id="retryButton" type="button">إعادة المحاولة</button>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const retryButton = document.getElementById("retryButton");
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const targetOrigin = urlParams.get("origin");
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    if (!targetOrigin) {
+      setStatus("لم يتم تحديد الصفحة المستهدفة (origin). أعد فتح هذه الصفحة من Sigma Voice.");
+    } else if (!window.opener) {
+      setStatus("يجب فتح هذه الصفحة عبر زر الميكروفون في Sigma Voice.");
+    } else {
+      const SpeechRecognitionImpl =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      if (!SpeechRecognitionImpl) {
+        setStatus("هذا المتصفح لا يدعم التعرف على الصوت. من فضلك استخدم Chrome.");
+        retryButton.style.display = "block";
+      } else {
+        const recognition = new SpeechRecognitionImpl();
+
+        recognition.lang = "ar-EG";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+
+        function startListening() {
+          retryButton.style.display = "none";
+          setStatus("جاري الاستماع...");
+
+          try {
+            recognition.start();
+          } catch (e) {
+            setStatus("تعذّر بدء الاستماع. حاول مرة أخرى.");
+            retryButton.style.display = "block";
+          }
+        }
+
+        recognition.onresult = function(event) {
+          const transcript = event.results[0][0].transcript.trim();
+
+          if (transcript) {
+            setStatus("تم التعرف على الطلب، جاري الإرسال...");
+            window.opener.postMessage(transcript, targetOrigin);
+            window.close();
+          } else {
+            setStatus("لم يتم التعرف على أي كلام. حاول مرة أخرى.");
+            retryButton.style.display = "block";
+          }
+        };
+
+        recognition.onerror = function(event) {
+          if (
+            event.error === "not-allowed" ||
+            event.error === "permission-denied"
+          ) {
+            setStatus("تم رفض إذن الميكروفون. من فضلك اسمح باستخدام الميكروفون ثم أعد المحاولة.");
+          } else {
+            setStatus("حدث خطأ أثناء التعرف على الصوت: " + event.error);
+          }
+
+          retryButton.style.display = "block";
+        };
+
+        retryButton.addEventListener("click", startListening);
+        startListening();
+      }
+    }
+  </script>
+</body>
+</html>
