@@ -12,6 +12,7 @@
       padding: 20px;
       direction: rtl;
       text-align: center;
+      user-select: none;
     }
     h1 { font-size: 20px; margin-bottom: 30px; }
     #status {
@@ -22,7 +23,45 @@
       line-height: 1.8;
       margin-bottom: 20px;
     }
-    button {
+    #micButton {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      border: none;
+      background: #222;
+      color: #fff;
+      font-size: 36px;
+      cursor: pointer;
+      touch-action: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto;
+    }
+    #micButton.recording { background: #c0392b; }
+    #micButton.locked { background: #1a7a3c; }
+    #hintText {
+      margin-top: 15px;
+      color: #777;
+      font-size: 13px;
+      display: none;
+    }
+    #controls {
+      display: none;
+      gap: 10px;
+      margin-top: 25px;
+    }
+    #controls button {
+      flex: 1;
+      padding: 14px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    #cancelButton { background: #eee; color: #222; }
+    #sendButton { background: #222; color: #fff; }
+    #retryButton {
       width: 100%;
       box-sizing: border-box;
       padding: 14px;
@@ -33,20 +72,31 @@
       background: #222;
       color: #fff;
       display: none;
+      margin-top: 20px;
     }
   </style>
 </head>
 <body>
   <h1>🎤 Sigma Voice</h1>
-
   <div id="status">جاري التحضير...</div>
-
+  <button id="micButton" type="button">🎤</button>
+  <div id="hintText">اسحب لأعلى للتثبيت</div>
+  <div id="controls">
+    <button id="cancelButton" type="button">إلغاء</button>
+    <button id="sendButton" type="button">إرسال</button>
+  </div>
   <button id="retryButton" type="button">إعادة المحاولة</button>
 
   <script>
     const statusEl = document.getElementById("status");
+    const micButton = document.getElementById("micButton");
+    const hintText = document.getElementById("hintText");
+    const controls = document.getElementById("controls");
+    const cancelButton = document.getElementById("cancelButton");
+    const sendButton = document.getElementById("sendButton");
     const retryButton = document.getElementById("retryButton");
 
+    const LOCK_DISTANCE = 60;
     const urlParams = new URLSearchParams(window.location.search);
     const targetOrigin = urlParams.get("origin");
 
@@ -54,64 +104,250 @@
       statusEl.textContent = text;
     }
 
+    function showReadyUI() {
+      micButton.style.display = "flex";
+      micButton.classList.remove("recording", "locked");
+      hintText.style.display = "none";
+      controls.style.display = "none";
+      retryButton.style.display = "none";
+      setStatus("جاهز");
+    }
+
     if (!targetOrigin) {
       setStatus("لم يتم تحديد الصفحة المستهدفة (origin). أعد فتح هذه الصفحة من Sigma Voice.");
+      micButton.style.display = "none";
     } else if (!window.opener) {
       setStatus("يجب فتح هذه الصفحة عبر زر الميكروفون في Sigma Voice.");
+      micButton.style.display = "none";
     } else {
       const SpeechRecognitionImpl =
         window.SpeechRecognition || window.webkitSpeechRecognition;
 
       if (!SpeechRecognitionImpl) {
         setStatus("هذا المتصفح لا يدعم التعرف على الصوت. من فضلك استخدم Chrome.");
+        micButton.style.display = "none";
         retryButton.style.display = "block";
       } else {
         const recognition = new SpeechRecognitionImpl();
 
         recognition.lang = "ar-EG";
-        recognition.interimResults = false;
+        recognition.continuous = true;
+        recognition.interimResults = true;
         recognition.maxAlternatives = 1;
 
-        function startListening() {
-          retryButton.style.display = "none";
-          setStatus("جاري الاستماع...");
-
-          try {
-            recognition.start();
-          } catch (e) {
-            setStatus("تعذّر بدء الاستماع. حاول مرة أخرى.");
-            retryButton.style.display = "block";
-          }
-        }
+        let finalTranscript = "";
+        let isRecording = false;
+        let isLocked = false;
+        let pointerActive = false;
+        let startY = 0;
+        let pendingAction = null;
 
         recognition.onresult = function(event) {
-          const transcript = event.results[0][0].transcript.trim();
-
-          if (transcript) {
-            setStatus("تم التعرف على الطلب، جاري الإرسال...");
-            window.opener.postMessage(transcript, targetOrigin);
-            window.close();
-          } else {
-            setStatus("لم يتم التعرف على أي كلام. حاول مرة أخرى.");
-            retryButton.style.display = "block";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            if (event.results[i].isFinal) {
+              finalTranscript += event.results[i][0].transcript + " ";
+            }
           }
         };
 
         recognition.onerror = function(event) {
-          if (
-            event.error === "not-allowed" ||
-            event.error === "permission-denied"
-          ) {
+          isRecording = false;
+          isLocked = false;
+          pendingAction = null;
+          pointerActive = false;
+
+          if (event.error === "not-allowed" || event.error === "permission-denied") {
             setStatus("تم رفض إذن الميكروفون. من فضلك اسمح باستخدام الميكروفون ثم أعد المحاولة.");
           } else {
             setStatus("حدث خطأ أثناء التعرف على الصوت: " + event.error);
           }
 
+          micButton.style.display = "none";
+          hintText.style.display = "none";
+          controls.style.display = "none";
           retryButton.style.display = "block";
         };
 
-        retryButton.addEventListener("click", startListening);
-        startListening();
+        recognition.onend = function() {
+          if (pendingAction === "send") {
+            const transcript = finalTranscript.trim();
+
+            if (!transcript) {
+              pendingAction = null;
+              setStatus("لم يتم التقاط أي كلام. حاول مرة أخرى.");
+              showReadyUI();
+              finalTranscript = "";
+              return;
+            }
+
+            setStatus("تم التعرف على الطلب، جاري الإرسال...");
+            window.opener.postMessage(transcript, targetOrigin);
+            window.close();
+          } else if (pendingAction === "cancel") {
+            pendingAction = null;
+            finalTranscript = "";
+            showReadyUI();
+          } else if (isRecording && isLocked && pendingAction === null) {
+            try {
+              recognition.start();
+            } catch (e) {
+              // تجاهل إذا كان قد بدأ بالفعل
+            }
+          }
+        };
+
+        function startRecording() {
+          finalTranscript = "";
+          isRecording = true;
+          isLocked = false;
+          pendingAction = null;
+
+          micButton.classList.add("recording");
+          hintText.style.display = "block";
+          controls.style.display = "none";
+          retryButton.style.display = "none";
+          micButton.style.display = "flex";
+
+          setStatus("جاري التسجيل...");
+
+          try {
+            recognition.start();
+          } catch (e) {
+            setStatus("تعذّر بدء التسجيل. حاول مرة أخرى.");
+            isRecording = false;
+            retryButton.style.display = "block";
+          }
+        }
+
+        function lockRecording() {
+          if (!isRecording || isLocked) {
+            return;
+          }
+
+          isLocked = true;
+          pointerActive = false;
+
+          micButton.classList.remove("recording");
+          micButton.classList.add("locked");
+          hintText.style.display = "none";
+          controls.style.display = "flex";
+
+          setStatus("تم تثبيت التسجيل");
+        }
+
+        function cancelRecording() {
+          if (!isRecording) {
+            return;
+          }
+
+          isRecording = false;
+          isLocked = false;
+          pointerActive = false;
+          pendingAction = "cancel";
+
+          micButton.classList.remove("recording", "locked");
+          hintText.style.display = "none";
+          controls.style.display = "none";
+          setStatus("تم الإلغاء");
+
+          try {
+            recognition.stop();
+          } catch (e) {
+            pendingAction = null;
+            finalTranscript = "";
+            showReadyUI();
+          }
+        }
+
+        function sendRecording() {
+          if (!isRecording || !isLocked) {
+            return;
+          }
+
+          isRecording = false;
+          pendingAction = "send";
+          controls.style.display = "none";
+          setStatus("جاري الإرسال...");
+
+          try {
+            recognition.stop();
+          } catch (e) {
+            const transcript = finalTranscript.trim();
+            if (!transcript) {
+              pendingAction = null;
+              showReadyUI();
+              finalTranscript = "";
+              setStatus("لم يتم التقاط أي كلام. حاول مرة أخرى.");
+              return;
+            }
+
+            window.opener.postMessage(transcript, targetOrigin);
+            window.close();
+          }
+        }
+
+        micButton.addEventListener("pointerdown", function(event) {
+          if (isRecording) {
+            return;
+          }
+
+          pointerActive = true;
+          startY = event.clientY;
+          micButton.setPointerCapture?.(event.pointerId);
+          startRecording();
+        });
+
+        micButton.addEventListener("pointermove", function(event) {
+          if (!pointerActive || !isRecording || isLocked) {
+            return;
+          }
+
+          const deltaY = startY - event.clientY;
+
+          if (deltaY > LOCK_DISTANCE) {
+            lockRecording();
+          }
+        });
+
+        function handlePointerUp() {
+          if (!pointerActive) {
+            return;
+          }
+
+          pointerActive = false;
+
+          if (isRecording && !isLocked) {
+            cancelRecording();
+          }
+        }
+
+        micButton.addEventListener("pointerup", handlePointerUp);
+        micButton.addEventListener("pointercancel", handlePointerUp);
+
+        cancelButton.addEventListener("click", cancelRecording);
+        sendButton.addEventListener("click", sendRecording);
+
+        document.addEventListener("keydown", function(event) {
+          if (event.key === "ArrowUp") {
+            if (isRecording && !isLocked) {
+              event.preventDefault();
+              lockRecording();
+            }
+          } else if (event.key === "Enter") {
+            if (isLocked) {
+              event.preventDefault();
+              sendRecording();
+            }
+          } else if (event.key === "Escape") {
+            if (isRecording) {
+              event.preventDefault();
+              cancelRecording();
+            }
+          }
+        });
+
+        retryButton.addEventListener("click", showReadyUI);
+        showReadyUI();
       }
     }
   </script>
