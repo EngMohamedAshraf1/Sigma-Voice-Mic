@@ -291,6 +291,7 @@
             return;
           }
 
+          window.focus();
           pointerActive = true;
           startY = event.clientY;
           micButton.setPointerCapture?.(event.pointerId);
@@ -324,29 +325,50 @@
         micButton.addEventListener("pointerup", handlePointerUp);
         micButton.addEventListener("pointercancel", handlePointerUp);
 
-        cancelButton.addEventListener("click", cancelRecording);
-        sendButton.addEventListener("click", sendRecording);
+        cancelButton.addEventListener("click", function() {
+          window.focus();
+          cancelRecording();
+        });
 
-        document.addEventListener("keydown", function(event) {
-          if (event.key === "ArrowUp") {
+        sendButton.addEventListener("click", function() {
+          window.focus();
+          sendRecording();
+        });
+
+        function handleKeyboard(event) {
+          if (event.key === "ArrowUp" || event.code === "ArrowUp") {
             if (isRecording && !isLocked) {
               event.preventDefault();
+              event.stopPropagation();
               lockRecording();
             }
-          } else if (event.key === "Enter") {
+          } else if (event.key === "Enter" || event.code === "Enter") {
             if (isLocked) {
               event.preventDefault();
+              event.stopPropagation();
               sendRecording();
             }
-          } else if (event.key === "Escape") {
+          } else if (event.key === "Escape" || event.code === "Escape") {
             if (isRecording) {
               event.preventDefault();
+              event.stopPropagation();
               cancelRecording();
             }
           }
+        }
+
+        window.addEventListener("keydown", handleKeyboard, true);
+        document.addEventListener("keydown", handleKeyboard, true);
+
+        window.addEventListener("load", function() {
+          window.focus();
         });
 
-        retryButton.addEventListener("click", showReadyUI);
+        retryButton.addEventListener("click", function() {
+          window.focus();
+          showReadyUI();
+        });
+
         showReadyUI();
       }
     }
