@@ -217,6 +217,90 @@
       font-size: 12px;
     }
 
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.68);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      z-index: 20;
+    }
+
+    .modal-backdrop.visible { display: flex; }
+
+    .modal {
+      width: min(420px, 100%);
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      box-shadow: 0 25px 60px rgba(0,0,0,.45);
+    }
+
+    .modal h2 {
+      margin: 0 0 10px;
+      font-size: 22px;
+    }
+
+    .modal p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 14px;
+    }
+
+    .modal input {
+      width: 100%;
+      padding: 13px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      font-size: 16px;
+      outline: none;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .modal-actions button {
+      flex: 1;
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      font-size: 15px;
+    }
+
+    #authButton {
+      background: var(--accent);
+      color: white;
+      border-color: transparent;
+    }
+
+    #authMessage {
+      min-height: 24px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    #backendBridge {
+      position: fixed;
+      width: 1px;
+      height: 1px;
+      border: 0;
+      opacity: 0;
+      pointer-events: none;
+      left: -9999px;
+      top: -9999px;
+    }
+
     @media (max-width: 600px) {
       .app { padding: 12px 12px 20px; }
       .hero h1 { font-size: 29px; }
@@ -234,7 +318,7 @@
         <span class="brand-mark">▮▮▮</span>
         <span>Sigma Voice</span>
       </div>
-      <button class="icon-button" type="button" aria-label="الإعدادات">⚙</button>
+      <button id="settingsButton" class="icon-button" type="button" aria-label="الإعدادات">⚙</button>
     </header>
 
     <main class="main">
@@ -245,7 +329,7 @@
 
       <section class="mic-zone">
         <button id="micButton" type="button" aria-label="تحدث">🎤</button>
-        <div id="status" class="status">اضغط وتحدث</div>
+        <div id="status" class="status">جاري الاتصال...</div>
 
         <div class="toolbar">
           <button id="soundButton" type="button" class="active">🔊 الصوت: مفعّل</button>
@@ -265,10 +349,29 @@
       </section>
     </main>
 
-    <footer>نسخة واجهة جديدة — متصلة لاحقًا بخلفية Sigma Voice الحالية</footer>
+    <footer>واجهة Sigma Voice الجديدة</footer>
+  </div>
+
+  <iframe id="backendBridge" title="Sigma backend bridge"></iframe>
+
+  <div id="authModal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal">
+      <h2>دخول Sigma Voice</h2>
+      <p>أدخل كلمة المرور مرة لبدء الاتصال بالخدمة في هذه الجلسة.</p>
+      <input id="authInput" type="password" placeholder="كلمة المرور" autocomplete="off">
+      <div id="authMessage"></div>
+      <div class="modal-actions">
+        <button id="authButton" type="button">دخول</button>
+      </div>
+    </div>
   </div>
 
   <script>
+    const APPS_SCRIPT_URL =
+      "https://script.google.com/macros/s/AKfycbxBiL92vdz_94KkNGDLwDV6HCu8vWuXU6a9r_fTl9yiQF-D2nmAxlPLCybrHqTieYjuug/exec";
+
+    const APP_ORIGIN = window.location.origin;
+
     const micButton = document.getElementById("micButton");
     const statusEl = document.getElementById("status");
     const controls = document.getElementById("controls");
@@ -276,6 +379,13 @@
     const cancelButton = document.getElementById("cancelButton");
     const resultText = document.getElementById("resultText");
     const soundButton = document.getElementById("soundButton");
+    const settingsButton = document.getElementById("settingsButton");
+    const backendBridge = document.getElementById("backendBridge");
+
+    const authModal = document.getElementById("authModal");
+    const authInput = document.getElementById("authInput");
+    const authButton = document.getElementById("authButton");
+    const authMessage = document.getElementById("authMessage");
 
     let recording = false;
     let locked = false;
@@ -284,6 +394,10 @@
     let soundEnabled = true;
     let recognition = null;
     let transcript = "";
+    let backendAuthenticated = false;
+    let authResolver = null;
+    let requestCounter = 0;
+    const pendingRequests = new Map();
 
     const LOCK_DISTANCE = 60;
 
@@ -298,11 +412,139 @@
       transcript = "";
       micButton.classList.remove("recording", "locked");
       controls.classList.remove("visible");
-      setStatus("اضغط وتحدث");
+      setStatus(backendAuthenticated ? "اضغط وتحدث" : "جاري الاتصال...");
     }
 
+    function showAuthModal() {
+      authModal.classList.add("visible");
+      authModal.setAttribute("aria-hidden", "false");
+      authMessage.textContent = "";
+      authInput.value = "";
+      setTimeout(function() { authInput.focus(); }, 50);
+    }
+
+    function hideAuthModal() {
+      authModal.classList.remove("visible");
+      authModal.setAttribute("aria-hidden", "true");
+    }
+
+    function requestBackend(type, payload) {
+      return new Promise(function(resolve, reject) {
+        const requestId = String(++requestCounter);
+        const timer = setTimeout(function() {
+          pendingRequests.delete(requestId);
+          reject(new Error("انتهت مهلة الاتصال بالخدمة."));
+        }, 30000);
+
+        pendingRequests.set(requestId, {
+          resolve: resolve,
+          reject: reject,
+          timer: timer
+        });
+
+        backendBridge.contentWindow.postMessage(
+          Object.assign({
+            type: "sigma:bridge:" + type,
+            requestId: requestId
+          }, payload || {}),
+          "*"
+        );
+      });
+    }
+
+    window.addEventListener("message", function(event) {
+      if (event.source !== backendBridge.contentWindow) {
+        return;
+      }
+
+      const data = event.data || {};
+
+      if (data.type !== "sigma:bridgeResult") {
+        return;
+      }
+
+      const pending = pendingRequests.get(data.requestId);
+
+      if (!pending) {
+        return;
+      }
+
+      clearTimeout(pending.timer);
+      pendingRequests.delete(data.requestId);
+      pending.resolve(data.result);
+    });
+
+    backendBridge.addEventListener("load", function() {
+      setStatus("جاهز");
+    });
+
+    backendBridge.src = APPS_SCRIPT_URL;
+
+    function ensureAuthenticated() {
+      if (backendAuthenticated) {
+        return Promise.resolve(true);
+      }
+
+      showAuthModal();
+
+      return new Promise(function(resolve) {
+        authResolver = resolve;
+      });
+    }
+
+    async function authenticate() {
+      const passphrase = authInput.value.trim();
+
+      if (!passphrase) {
+        authMessage.textContent = "أدخل كلمة المرور أولًا.";
+        return;
+      }
+
+      authButton.disabled = true;
+      authMessage.textContent = "جاري التحقق...";
+
+      try {
+        const result = await requestBackend("auth", {
+          passphrase: passphrase
+        });
+
+        if (result && result.success) {
+          backendAuthenticated = true;
+          hideAuthModal();
+          setStatus("اضغط وتحدث");
+
+          if (authResolver) {
+            const resolve = authResolver;
+            authResolver = null;
+            resolve(true);
+          }
+        } else {
+          authMessage.textContent =
+            (result && result.message) || "تعذر تسجيل الدخول.";
+        }
+      } catch (error) {
+        authMessage.textContent = error.message;
+      } finally {
+        authButton.disabled = false;
+      }
+    }
+
+    authButton.addEventListener("click", authenticate);
+
+    authInput.addEventListener("keydown", function(event) {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        authenticate();
+      }
+    });
+
+    settingsButton.addEventListener("click", function() {
+      showAuthModal();
+    });
+
     function startRecognition() {
-      const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const SpeechRecognitionImpl =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
 
       if (!SpeechRecognitionImpl) {
         setStatus("التعرف على الصوت غير مدعوم في هذا المتصفح.");
@@ -316,15 +558,32 @@
       recognition.maxAlternatives = 1;
 
       recognition.onresult = function(event) {
-        let text = "";
+        let finalPart = "";
+        let interimPart = "";
+
         for (let i = event.resultIndex; i < event.results.length; i++) {
-          text += event.results[i][0].transcript + " ";
+          const part = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalPart += part + " ";
+          } else {
+            interimPart += part + " ";
+          }
         }
-        transcript = (transcript + " " + text).trim();
+
+        if (finalPart) {
+          transcript = (transcript + " " + finalPart).trim();
+        }
+
+        const liveText = (transcript + " " + interimPart).trim();
+        if (liveText) {
+          resultText.textContent = liveText;
+        }
       };
 
-      recognition.onerror = function() {
-        if (recording) setStatus("تعذّر التعرف على الصوت، حاول مرة أخرى.");
+      recognition.onerror = function(event) {
+        if (recording) {
+          setStatus("تعذّر التعرف على الصوت: " + event.error);
+        }
       };
 
       recognition.onend = function() {
@@ -344,18 +603,24 @@
 
     function beginRecording() {
       if (recording) return;
+
       recording = true;
       locked = false;
       pointerActive = true;
       transcript = "";
+      resultText.textContent = "جاري التقاط الكلام...";
       micButton.classList.add("recording");
       setStatus("جاري التسجيل... اسحب لأعلى للتثبيت");
       controls.classList.remove("visible");
-      startRecognition();
+
+      if (!startRecognition()) {
+        cancelRecording();
+      }
     }
 
     function lockRecording() {
       if (!recording || locked) return;
+
       locked = true;
       pointerActive = false;
       micButton.classList.remove("recording");
@@ -364,35 +629,92 @@
       setStatus("تم تثبيت التسجيل — أرسل عندما تنتهي");
     }
 
-    function sendRecording() {
+    async function sendRecording() {
       if (!recording || !locked) return;
+
       recording = false;
       controls.classList.remove("visible");
-      setStatus("تم الإرسال — جاري الفهم والحساب...");
+      setStatus("جاري الفهم والحساب...");
+
       if (recognition) {
         try { recognition.stop(); } catch (e) {}
       }
 
-      resultText.textContent = transcript || "لم يتم التقاط نص بعد.";
-      micButton.classList.remove("recording", "locked");
-      // الربط الحقيقي مع Code.gs سيكون في خطوة لاحقة.
-      if (soundEnabled) {
-        setStatus("النص جاهز — الصوت سيُفعّل عند ربط الخلفية.");
-      } else {
-        setStatus("النص جاهز.");
+      const text = transcript.trim();
+
+      if (!text) {
+        resetUI();
+        resultText.textContent = "لم يتم التقاط أي نص.";
+        return;
       }
-      recording = false;
-      locked = false;
+
+      try {
+        const authenticated = await ensureAuthenticated();
+
+        if (!authenticated) {
+          resetUI();
+          return;
+        }
+
+        const result = await requestBackend("calculate", {
+          text: text
+        });
+
+        if (!result || result.success !== true) {
+          setStatus("تعذر حساب الطلب.");
+          resultText.textContent =
+            (result && result.message) || "حدث خطأ غير متوقع.";
+          return;
+        }
+
+        const invoice = String(result.value || "");
+        resultText.textContent = invoice;
+        setStatus("تم الحساب بنجاح");
+
+        if (soundEnabled && invoice.indexOf("الإجمالي") !== -1) {
+          setStatus("تم الحساب — جاري تجهيز الصوت...");
+
+          const audioResult = await requestBackend("synthesize", {
+            text: invoice
+          });
+
+          if (audioResult && audioResult.success && audioResult.audioBase64) {
+            const audio = new Audio(
+              "data:audio/wav;base64," +
+              audioResult.audioBase64
+            );
+
+            try {
+              await audio.play();
+              setStatus("تم الحساب وتشغيل الصوت");
+            } catch (error) {
+              setStatus("تم الحساب. اضغط تشغيل الصوت من المتصفح إن لزم.");
+            }
+          } else {
+            setStatus("تم الحساب، وتعذّر تجهيز الصوت.");
+          }
+        }
+
+      } catch (error) {
+        setStatus("حدث خطأ في الاتصال بالخدمة.");
+        resultText.textContent = error.message;
+      } finally {
+        micButton.classList.remove("recording", "locked");
+        recording = false;
+        locked = false;
+      }
     }
 
     function cancelRecording() {
       if (!recording) return;
+
       recording = false;
       locked = false;
       pointerActive = false;
       controls.classList.remove("visible");
       micButton.classList.remove("recording", "locked");
       setStatus("تم الإلغاء");
+
       if (recognition) {
         try { recognition.stop(); } catch (e) {}
       }
@@ -437,6 +759,12 @@
       soundEnabled = !soundEnabled;
       soundButton.classList.toggle("active", soundEnabled);
       soundButton.textContent = soundEnabled ? "🔊 الصوت: مفعّل" : "🔇 الصوت: متوقف";
+    });
+
+    authModal.addEventListener("click", function(event) {
+      if (event.target === authModal) {
+        event.preventDefault();
+      }
     });
 
     resetUI();
