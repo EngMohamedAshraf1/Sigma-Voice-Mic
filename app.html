@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1117">
+  <title>Sigma Voice</title>
+
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #171a22;
+      --panel-2: #1d212b;
+      --text: #f4f5f7;
+      --muted: #a9afbb;
+      --accent: #8b4dff;
+      --accent-2: #a76cff;
+      --danger: #d64545;
+      --ok: #39b56b;
+      --border: #2a2f3b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 50% 20%, #191326 0, var(--bg) 42%);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+    }
+
+    .app {
+      width: min(900px, 100%);
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 18px 18px 28px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 0 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .brand-mark {
+      color: var(--accent-2);
+      font-size: 24px;
+    }
+
+    .icon-button {
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 19px;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 22px;
+    }
+
+    .hero {
+      text-align: center;
+    }
+
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: clamp(28px, 5vw, 42px);
+    }
+
+    .hero p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .mic-zone {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+    }
+
+    #micButton {
+      width: clamp(150px, 32vw, 220px);
+      height: clamp(150px, 32vw, 220px);
+      border-radius: 50%;
+      border: 8px solid rgba(139, 77, 255, .24);
+      background: radial-gradient(circle at 35% 30%, var(--accent-2), var(--accent) 65%, #5a25b7 100%);
+      color: white;
+      box-shadow: 0 0 0 10px rgba(139, 77, 255, .08), 0 18px 45px rgba(0,0,0,.4);
+      cursor: pointer;
+      font-size: clamp(48px, 10vw, 72px);
+      touch-action: none;
+      user-select: none;
+    }
+
+    #micButton.recording {
+      background: radial-gradient(circle at 35% 30%, #ff6b6b, #c93434 65%, #8e1e1e 100%);
+      border-color: rgba(214, 69, 69, .3);
+      box-shadow: 0 0 0 12px rgba(214, 69, 69, .09), 0 18px 45px rgba(0,0,0,.4);
+    }
+
+    #micButton.locked {
+      background: radial-gradient(circle at 35% 30%, #63d68f, #29975a 65%, #1f6a40 100%);
+      border-color: rgba(57, 181, 107, .28);
+    }
+
+    .status {
+      min-height: 28px;
+      text-align: center;
+      font-size: 16px;
+      color: var(--muted);
+    }
+
+    .toolbar {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar button {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      padding: 11px 16px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .toolbar button.active {
+      border-color: rgba(139, 77, 255, .5);
+      background: rgba(139, 77, 255, .12);
+    }
+
+    .result-card {
+      background: linear-gradient(180deg, rgba(29,33,43,.98), rgba(23,26,34,.98));
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+      min-height: 150px;
+    }
+
+    .result-title {
+      font-size: 15px;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    #resultText {
+      white-space: pre-wrap;
+      line-height: 1.9;
+      font-size: 17px;
+    }
+
+    .controls {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .controls.visible { display: flex; }
+
+    .action-button {
+      min-width: 140px;
+      padding: 13px 18px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    #sendButton {
+      background: var(--accent);
+      color: white;
+      border-color: transparent;
+    }
+
+    #cancelButton {
+      background: var(--panel);
+      color: var(--text);
+    }
+
+    .kbd {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    footer {
+      padding-top: 18px;
+      text-align: center;
+      color: #737987;
+      font-size: 12px;
+    }
+
+    @media (max-width: 600px) {
+      .app { padding: 12px 12px 20px; }
+      .hero h1 { font-size: 29px; }
+      .hero p { font-size: 14px; }
+      .result-card { padding: 16px; }
+      #resultText { font-size: 16px; }
+      .kbd { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <span class="brand-mark">▮▮▮</span>
+        <span>Sigma Voice</span>
+      </div>
+      <button class="icon-button" type="button" aria-label="الإعدادات">⚙</button>
+    </header>
+
+    <main class="main">
+      <section class="hero">
+        <h1>مرحبًا بك في Sigma Voice</h1>
+        <p>اضغط على الميكروفون وتحدث بطلبك</p>
+      </section>
+
+      <section class="mic-zone">
+        <button id="micButton" type="button" aria-label="تحدث">🎤</button>
+        <div id="status" class="status">اضغط وتحدث</div>
+
+        <div class="toolbar">
+          <button id="soundButton" type="button" class="active">🔊 الصوت: مفعّل</button>
+        </div>
+      </section>
+
+      <section id="controls" class="controls">
+        <button id="cancelButton" class="action-button" type="button">إلغاء</button>
+        <button id="sendButton" class="action-button" type="button">إرسال ➤</button>
+      </section>
+
+      <div class="kbd">على اللابتوب: ↑ تثبيت · Enter إرسال · Esc إلغاء</div>
+
+      <section class="result-card">
+        <div class="result-title">النتيجة</div>
+        <div id="resultText">ستظهر نتيجة طلبك هنا...</div>
+      </section>
+    </main>
+
+    <footer>نسخة واجهة جديدة — متصلة لاحقًا بخلفية Sigma Voice الحالية</footer>
+  </div>
+
+  <script>
+    const micButton = document.getElementById("micButton");
+    const statusEl = document.getElementById("status");
+    const controls = document.getElementById("controls");
+    const sendButton = document.getElementById("sendButton");
+    const cancelButton = document.getElementById("cancelButton");
+    const resultText = document.getElementById("resultText");
+    const soundButton = document.getElementById("soundButton");
+
+    let recording = false;
+    let locked = false;
+    let pointerActive = false;
+    let startY = 0;
+    let soundEnabled = true;
+    let recognition = null;
+    let transcript = "";
+
+    const LOCK_DISTANCE = 60;
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function resetUI() {
+      recording = false;
+      locked = false;
+      pointerActive = false;
+      transcript = "";
+      micButton.classList.remove("recording", "locked");
+      controls.classList.remove("visible");
+      setStatus("اضغط وتحدث");
+    }
+
+    function startRecognition() {
+      const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+      if (!SpeechRecognitionImpl) {
+        setStatus("التعرف على الصوت غير مدعوم في هذا المتصفح.");
+        return false;
+      }
+
+      recognition = new SpeechRecognitionImpl();
+      recognition.lang = "ar-EG";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+
+      recognition.onresult = function(event) {
+        let text = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          text += event.results[i][0].transcript + " ";
+        }
+        transcript = (transcript + " " + text).trim();
+      };
+
+      recognition.onerror = function() {
+        if (recording) setStatus("تعذّر التعرف على الصوت، حاول مرة أخرى.");
+      };
+
+      recognition.onend = function() {
+        if (recording && locked) {
+          try { recognition.start(); } catch (e) {}
+        }
+      };
+
+      try {
+        recognition.start();
+        return true;
+      } catch (e) {
+        setStatus("تعذّر بدء التسجيل.");
+        return false;
+      }
+    }
+
+    function beginRecording() {
+      if (recording) return;
+      recording = true;
+      locked = false;
+      pointerActive = true;
+      transcript = "";
+      micButton.classList.add("recording");
+      setStatus("جاري التسجيل... اسحب لأعلى للتثبيت");
+      controls.classList.remove("visible");
+      startRecognition();
+    }
+
+    function lockRecording() {
+      if (!recording || locked) return;
+      locked = true;
+      pointerActive = false;
+      micButton.classList.remove("recording");
+      micButton.classList.add("locked");
+      controls.classList.add("visible");
+      setStatus("تم تثبيت التسجيل — أرسل عندما تنتهي");
+    }
+
+    function sendRecording() {
+      if (!recording || !locked) return;
+      recording = false;
+      controls.classList.remove("visible");
+      setStatus("تم الإرسال — جاري الفهم والحساب...");
+      if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
+
+      resultText.textContent = transcript || "لم يتم التقاط نص بعد.";
+      micButton.classList.remove("recording", "locked");
+      // الربط الحقيقي مع Code.gs سيكون في خطوة لاحقة.
+      if (soundEnabled) {
+        setStatus("النص جاهز — الصوت سيُفعّل عند ربط الخلفية.");
+      } else {
+        setStatus("النص جاهز.");
+      }
+      recording = false;
+      locked = false;
+    }
+
+    function cancelRecording() {
+      if (!recording) return;
+      recording = false;
+      locked = false;
+      pointerActive = false;
+      controls.classList.remove("visible");
+      micButton.classList.remove("recording", "locked");
+      setStatus("تم الإلغاء");
+      if (recognition) {
+        try { recognition.stop(); } catch (e) {}
+      }
+    }
+
+    micButton.addEventListener("pointerdown", function(event) {
+      micButton.setPointerCapture?.(event.pointerId);
+      pointerActive = true;
+      startY = event.clientY;
+      beginRecording();
+    });
+
+    micButton.addEventListener("pointermove", function(event) {
+      if (!pointerActive || !recording || locked) return;
+      if (startY - event.clientY > LOCK_DISTANCE) lockRecording();
+    });
+
+    micButton.addEventListener("pointerup", function() {
+      if (!pointerActive) return;
+      pointerActive = false;
+      if (recording && !locked) cancelRecording();
+    });
+
+    micButton.addEventListener("pointercancel", cancelRecording);
+    sendButton.addEventListener("click", sendRecording);
+    cancelButton.addEventListener("click", cancelRecording);
+
+    window.addEventListener("keydown", function(event) {
+      if (event.key === "ArrowUp" && recording && !locked) {
+        event.preventDefault();
+        lockRecording();
+      } else if (event.key === "Enter" && locked) {
+        event.preventDefault();
+        sendRecording();
+      } else if (event.key === "Escape" && recording) {
+        event.preventDefault();
+        cancelRecording();
+      }
+    });
+
+    soundButton.addEventListener("click", function() {
+      soundEnabled = !soundEnabled;
+      soundButton.classList.toggle("active", soundEnabled);
+      soundButton.textContent = soundEnabled ? "🔊 الصوت: مفعّل" : "🔇 الصوت: متوقف";
+    });
+
+    resetUI();
+  </script>
+</body>
+</html>
